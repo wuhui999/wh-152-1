@@ -1,5 +1,6 @@
 import streamlit as st
 from data.mock_data import station_color, STATIONS, CAR_TYPES
+from core.marshalling import move_car_to_position, detect_conflicts, generate_shunting_plan
 
 def render():
     st.header("📊 编组视图")
@@ -11,6 +12,7 @@ def render():
 
     plan = st.session_state.marshalling_plan
     sequence = plan["sequence"]
+    n_cars = plan["total_cars"]
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("车次", st.session_state.train_info["train_number"])
@@ -41,6 +43,11 @@ def render():
 
     st.subheader("按站统计")
     _render_station_stats(sequence)
+
+    st.markdown("---")
+
+    st.subheader("手动调位")
+    _render_position_adjustment(sequence, n_cars, plan)
 
     st.markdown("---")
 
@@ -132,3 +139,52 @@ def _render_car_table(cars: list):
 
     styled = df.style.apply(highlight_special, axis=1)
     st.dataframe(styled, use_container_width=True, height=400)
+
+
+def _render_position_adjustment(sequence: list, n_cars: int, plan: dict):
+    col_select, col_pos, col_btn = st.columns([3, 2, 2])
+
+    with col_select:
+        car_options = [f"第{i+1}位 - {car['id']} ({car['car_type']} - {car['destination']})"
+                       for i, car in enumerate(sequence)]
+        selected_idx = st.selectbox(
+            "选择要调位的车厢",
+            range(len(car_options)),
+            format_func=lambda x: car_options[x],
+            key="pos_adjust_car"
+        )
+
+    with col_pos:
+        target_pos = st.number_input(
+            f"目标顺位 (1 - {n_cars})",
+            min_value=1,
+            max_value=n_cars,
+            value=1,
+            step=1,
+            key="pos_adjust_target"
+        )
+
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🎯 应用调位", type="primary", use_container_width=True, key="pos_adjust_btn"):
+            selected_car = sequence[selected_idx]
+            car_id = selected_car["id"]
+
+            result = move_car_to_position(plan, car_id, target_pos)
+
+            if result["success"]:
+                new_plan = result["new_plan"]
+                max_weight = st.session_state.train_info["max_weight"]
+
+                new_conflicts = detect_conflicts(new_plan, max_weight)
+                new_shunting = generate_shunting_plan(new_plan)
+
+                st.session_state.marshalling_plan = new_plan
+                st.session_state.conflicts = new_conflicts
+                st.session_state.shunting_plan = new_shunting
+
+                st.success(result["message"])
+                st.info(f"已自动重算：冲突数 {len(new_conflicts)} 个，调车耗时 {new_shunting['total_time']:.1f} 分钟")
+                st.rerun()
+            else:
+                st.error(result["message"])

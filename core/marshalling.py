@@ -170,30 +170,40 @@ def generate_shunting_plan(plan: dict) -> dict:
         return {"operations": [], "total_time": 0, "total_cars": 0}
 
     operations = []
-    station_groups = {}
-    for idx, car in enumerate(sequence):
-        dest = car["destination"]
-        if dest not in station_groups:
-            station_groups[dest] = []
-        station_groups[dest].append((idx + 1, car))
+    consecutive_groups = []
+    if sequence:
+        current_station = sequence[0]["destination"]
+        current_group = [(1, sequence[0])]
+        for idx in range(1, len(sequence)):
+            car = sequence[idx]
+            if car["destination"] == current_station:
+                current_group.append((idx + 1, car))
+            else:
+                consecutive_groups.append((current_station, current_group))
+                current_station = car["destination"]
+                current_group = [(idx + 1, car)]
+        consecutive_groups.append((current_station, current_group))
 
     track_num = 1
-    for station in STATIONS:
-        if station in station_groups:
-            cars_in_station = station_groups[station]
-            n_cars = len(cars_in_station)
-            operations.append({
-                "step": len(operations) + 1,
-                "operation": f"摘解-{station}",
-                "track": f"{track_num}道",
-                "cars": n_cars,
-                "car_ids": [car[1]["id"] for car in cars_in_station],
-                "position_start": cars_in_station[0][0],
-                "position_end": cars_in_station[-1][0],
-                "duration": 3 + n_cars * 0.5,
-                "type": "decouple",
-            })
-            track_num += 1
+    station_operations = {}
+    for station, cars_in_group in consecutive_groups:
+        if station not in station_operations:
+            station_operations[station] = []
+        n_cars = len(cars_in_group)
+        op = {
+            "step": len(operations) + 1,
+            "operation": f"摘解-{station}",
+            "track": f"{track_num}道",
+            "cars": n_cars,
+            "car_ids": [car[1]["id"] for car in cars_in_group],
+            "position_start": cars_in_group[0][0],
+            "position_end": cars_in_group[-1][0],
+            "duration": 3 + n_cars * 0.5,
+            "type": "decouple",
+        }
+        operations.append(op)
+        station_operations[station].append(op)
+        track_num += 1
 
     total_time = sum(op["duration"] for op in operations) + len(operations) * 2
 
@@ -201,9 +211,59 @@ def generate_shunting_plan(plan: dict) -> dict:
         "operations": operations,
         "total_time": round(total_time, 1),
         "total_cars": len(sequence),
-        "n_stations": len(station_groups),
+        "n_stations": len(station_operations),
         "setup_time": round(len(operations) * 2, 1),
         "operation_time": round(sum(op["duration"] for op in operations), 1),
+    }
+
+
+def move_car_to_position(plan: dict, car_id: str, target_pos: int) -> dict:
+    sequence = plan.get("sequence", [])
+    if not sequence:
+        return {"success": False, "message": "当前编组为空，无法调位", "new_plan": None}
+
+    n_cars = len(sequence)
+    current_pos = None
+    for i, car in enumerate(sequence):
+        if car["id"] == car_id:
+            current_pos = i + 1
+            break
+
+    if current_pos is None:
+        return {"success": False, "message": f"未找到车厢编号 {car_id}", "new_plan": None}
+
+    if target_pos < 1 or target_pos > n_cars:
+        return {
+            "success": False,
+            "message": f"目标顺位 {target_pos} 越界，有效范围为 1 到 {n_cars}",
+            "new_plan": None
+        }
+
+    if target_pos == current_pos:
+        return {
+            "success": False,
+            "message": f"目标顺位 {target_pos} 与当前顺位相同，无需调位",
+            "new_plan": None
+        }
+
+    new_sequence = [car.copy() for car in sequence]
+    car = new_sequence.pop(current_pos - 1)
+    new_sequence.insert(target_pos - 1, car)
+
+    new_plan = {
+        "sequence": new_sequence,
+        "total_weight": plan["total_weight"],
+        "total_cars": plan["total_cars"],
+        "strategy": plan["strategy"],
+        "overweight": plan.get("overweight", False),
+    }
+
+    return {
+        "success": True,
+        "message": f"车厢 {car_id} 已从第 {current_pos} 位移动到第 {target_pos} 位",
+        "new_plan": new_plan,
+        "old_position": current_pos,
+        "new_position": target_pos,
     }
 
 

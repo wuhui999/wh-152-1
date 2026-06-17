@@ -1,5 +1,5 @@
 import streamlit as st
-from pages import import_page, marshalling_view, conflict_analysis, shunting_operations, export_page
+from views import import_page, marshalling_view, conflict_analysis, shunting_operations, export_page
 
 st.set_page_config(
     page_title="铁路货运编组分析看板",
@@ -13,7 +13,8 @@ st.markdown("""
     .main .block-container {padding-top: 2rem;}
     h1, h2, h3 {color: #1e3a5f;}
     .stMetric {background-color: #f0f5fa; padding: 0.8rem; border-radius: 0.5rem;}
-    div[data-testid="stSidebarNav"] li div a {padding-left: 1rem;}
+    div[data-testid="stSidebarNav"] {display: none !important;}
+    [data-testid="stSidebarNavSeparator"] {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
 
